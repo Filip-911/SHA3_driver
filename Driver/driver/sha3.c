@@ -37,7 +37,7 @@ ssize_t sha3_write(struct file *pfile, const char __user *buffer, size_t length,
 
 uint64_t state[5][5];
 uint64_t block[5][5];
-unsigned char *hex;
+unsigned char hex[HEX_AMOUNT];
 bool result_ready = 0;
 int pos = 0;
 int endRead = 0;
@@ -86,12 +86,12 @@ ssize_t sha3_read(struct file *pfile, char __user *buffer, size_t length, loff_t
 	if(endRead)
 	{
 	    endRead = 0;
-        pos = 0;
-        result_ready = 0;
+            pos = 0;
+	    result_ready = 0;
 	    return 0;
 	}
 	
-    len = scnprintf(buff, BUFF_SIZE, "%d", hex[pos]);
+    len = scnprintf(buff, BUFF_SIZE, "%c", hex[pos]);
     ret = copy_to_user(buffer, buff, HEX_AMOUNT);
     
     if(ret)
@@ -102,18 +102,24 @@ ssize_t sha3_read(struct file *pfile, char __user *buffer, size_t length, loff_t
 	if(++pos == BUFF_SIZE)  // 65
 		endRead = 1;
 
-    kfree(hex);
-
 	return len;
 }
 
 ssize_t sha3_write(struct file *pfile, const char __user *buffer, size_t length, loff_t *offset) 
 {
+     size_t i, j;
     int ret;
     char* buff;
+    size_t len;
     int blockCount;
 	result_ready = 0;
 	// allocate the memory
+     
+  //array init
+    for (i = 0; i < 5; i++)
+		for (j = 0; j < 5; j++)
+			state[i][j] = 0x0000000000000000;
+
     if(length + 1 == RATE)
     {
         buff = (unsigned char*)kmalloc(RATE + 1, GFP_KERNEL);
@@ -137,35 +143,30 @@ ssize_t sha3_write(struct file *pfile, const char __user *buffer, size_t length,
     printk(KERN_INFO "Successfully wrote buff: %s", buff);
 
 	// padding
-    Pad(buff, length);
+    len = length;
+    len--;
+    Pad(buff, len);
     printk(KERN_INFO "Successfully padded");
 
 	// do the actual hw function
 	Hardware_f(blockCount, buff);
-    printk(KERN_WARNING "hardware_f done\n");
+    //printk(KERN_WARNING "hardware_f done\n");
 
 	kfree(buff);
-    printk(KERN_WARNING "buff freed\n");
+    //printk(KERN_WARNING "buff freed\n");
 
 	// squeeze with kernel print
 	Squeeze();
-    printk(KERN_WARNING "squeeze done\n");
+    //printk(KERN_WARNING "squeeze done\n");
 
 	// global variable for reading set
 	result_ready = 1;
-    printk(KERN_WARNING "write operation done\n");
+    //printk(KERN_WARNING "write operation done\n");
     return length;
 }
 
 static int __init sha3_init(void)
-{
-    size_t i, j;
-    int ret;
-    //array init
-    for (i = 0; i < 5; i++)
-		for (j = 0; j < 5; j++)
-			state[i][j] = 0x0000000000000000;
-
+{    int ret;
    ret = alloc_chrdev_region(&my_dev_id, 0, 1, "sha3");
    if (ret){
       printk(KERN_ERR "failed to register char device\n");
@@ -243,6 +244,12 @@ void Pad(unsigned char *buff, int length)
         buff[a*RATE - 1] = 0x80;
         buff[a*RATE] = '\0';
     }
+    
+   for(i = 0; i < 4; i++)
+    {
+       printk("After padding function: %x", buff[i]);
+    }
+
 }
 
 void Hex_value_2(uint64_t dec_value, unsigned char* hex1)
@@ -264,16 +271,10 @@ void Hex_value_2(uint64_t dec_value, unsigned char* hex1)
 }
 
 uint64_t Rotate_right(uint64_t a, uint64_t rot)
+
 {
-    uint64_t temp;
-    int i;
-    rot &= 0x3f;
-    temp = a;
-    for (i = 0; i < rot; i++) {
-        uint64_t msb = (temp >> 63) & 0x1;  // Get the most significant bit
-        temp = (temp << 1) | msb;          // Shift left and set the LSB to the previous MSB
-    }
-    return temp;
+     rot &= 0x3f;
+   return (a << rot) | (a >> (64 - rot));
 }
 
 void Hardware_f(int blockCount, unsigned char* buff)
@@ -288,8 +289,6 @@ void Hardware_f(int blockCount, unsigned char* buff)
 
         Absorb(buff, inputPos);
         inputPos += RATE;
-
-
         for (j = 0; j < 5; j++)
             for (k = 0; k < 5; k++)
                 state[j][k] ^= block[j][k];
@@ -302,12 +301,7 @@ void Squeeze(void)
 {   
     int p = 0 ;
     size_t i,j ;
-    uint64_t *z;
-
-	hex = (unsigned char*) kmalloc(HEX_AMOUNT * sizeof(unsigned char), GFP_KERNEL);
-	z = (uint64_t*) kmalloc(Z_AMOUNT * sizeof(uint64_t), GFP_KERNEL);
-
-    printk(KERN_WARNING "Z allocated\n");
+    uint64_t z[Z_AMOUNT];
 
     //initialize Z to be the empty string
     for (i = 0; i < Z_AMOUNT; i++)
@@ -336,8 +330,7 @@ void Squeeze(void)
     for (i = 0; i < Z_AMOUNT; i++)
         Hex_value_2(z[i], &hex[i * WORD_SIZE *2]);
     printk(KERN_WARNING "hex_Value_2 done\n");
-        
-    kfree(z);    
+      
     printk(KERN_WARNING "Z freed\n");
     hex[HEX_AMOUNT - 1] = '\0';
 
@@ -347,6 +340,7 @@ void Squeeze(void)
 void Absorb(unsigned char *buff, int inputPos)        
 {
     int p = 0;
+    unsigned char hex3[HEX_AMOUNT];
     size_t i, j, k;
     for (i = 0; i < 5; i++)
         for (j = 0; j < 5; j++)
@@ -360,9 +354,19 @@ void Absorb(unsigned char *buff, int inputPos)
                         if(k != WORD_SIZE - 1)
                             block[j][i] <<= WORD_SIZE;
                     }
-            }
-        }
+            }	
+	}
+    
+    Hex_value_2(block[0][0], &hex3[0]);
+    printk("block after absorb: %s", hex3);
+    
+    for (j = 0; j < 4; j++)
+           Hex_value_2(block[j][0], &hex3[j * WORD_SIZE*2]);
+    
+    printk("Block after Absorb function: %s", hex3);
+
 }
+
 
 void Keccak_f(void)
 {
@@ -403,7 +407,7 @@ void Keccak_f(void)
         }
         for (x = 0; x < 5; x++)
         {
-            D[x] = C[(x + 4) % 5] ^ Rotate_right(C[(x + 1) % 5], 1);
+            D[x] = C[(x + 4) % 5] ^Rotate_right(C[(x + 1) % 5], 1);
             for ( y = 0; y < 5; y++)
                 state[x][y] ^= D[x];
         }
