@@ -77,45 +77,47 @@ ssize_t sha3_read(struct file *pfile, char __user *buffer, size_t length, loff_t
     // squeeze into file
     char buff[BUFF_SIZE];
     int ret, len;
-    if(result_ready == 0)
-    {
+
+    if(result_ready == 0){
         printk(KERN_ERR "result not ready ");
         return 0;
     }
 
-	if(endRead)
-	{
-	    endRead = 0;
-            pos = 0;
-	    result_ready = 0;
-	    return 0;
-	}
+    if(endRead){
+	endRead = 0;
+        pos = 0;
+        result_ready = 0;
+        return 0;
+    }
 	
-    len = scnprintf(buff, BUFF_SIZE, "%c", hex[pos]);
-    ret = copy_to_user(buffer, buff, HEX_AMOUNT);
+    if (pos < BUFF_SIZE){
+	 len = scnprintf(buff, BUFF_SIZE, "%c", hex[pos++]);
+         ret = copy_to_user(buffer, buff, HEX_AMOUNT);
+    }
+    else if(pos == BUFF_SIZE - 1){
+	 len = scnprintf(buff, BUFF_SIZE, "%c\n", hex[pos++]);
+         ret = copy_to_user(buffer, buff, HEX_AMOUNT);
+    }
+    else if(pos == BUFF_SIZE)  // 65
+	 endRead = 1;
     
-    if(ret)
-    {
+    if(ret){
         return -EFAULT;
     }
-        
-	if(++pos == BUFF_SIZE)  // 65
-		endRead = 1;
-
-	return len;
+    
+    return len;
 }
 
 ssize_t sha3_write(struct file *pfile, const char __user *buffer, size_t length, loff_t *offset) 
 {
-     size_t i, j;
+    size_t i, j;
     int ret;
     char* buff;
     size_t len;
     int blockCount;
-	result_ready = 0;
-	// allocate the memory
+    result_ready = 0;
      
-  //array init
+    //array init
     for (i = 0; i < 5; i++)
 		for (j = 0; j < 5; j++)
 			state[i][j] = 0x0000000000000000;
@@ -135,33 +137,29 @@ ssize_t sha3_write(struct file *pfile, const char __user *buffer, size_t length,
 	if(!buff)
 	  return -EFAULT;
 	
-	ret = copy_from_user(buff, buffer, length);
-	if(ret)
-		return -EFAULT;
+    ret = copy_from_user(buff, buffer, length);
+    if(ret)
+	return -EFAULT;
 
-	buff[length-1] = '\0';
+    buff[length-1] = '\0';
     printk(KERN_INFO "Successfully wrote buff: %s", buff);
 
-	// padding
+
+    // padding
     len = length;
     len--;
     Pad(buff, len);
-    printk(KERN_INFO "Successfully padded");
-
-	// do the actual hw function
-	Hardware_f(blockCount, buff);
-    //printk(KERN_WARNING "hardware_f done\n");
-
-	kfree(buff);
-    //printk(KERN_WARNING "buff freed\n");
-
-	// squeeze with kernel print
-	Squeeze();
-    //printk(KERN_WARNING "squeeze done\n");
-
-	// global variable for reading set
-	result_ready = 1;
-    //printk(KERN_WARNING "write operation done\n");
+    
+    // do the actual hw function
+    Hardware_f(blockCount, buff);
+    kfree(buff);
+    
+    // squeeze with kernel print
+    Squeeze();
+    
+    // global variable for reading set
+    result_ready = 1;
+  
     return length;
 }
 
@@ -244,11 +242,6 @@ void Pad(unsigned char *buff, int length)
         buff[a*RATE - 1] = 0x80;
         buff[a*RATE] = '\0';
     }
-    
-   for(i = 0; i < 4; i++)
-    {
-       printk("After padding function: %x", buff[i]);
-    }
 
 }
 
@@ -325,23 +318,18 @@ void Squeeze(void)
         if(p == Z_AMOUNT)
             break;
     }
-    printk(KERN_WARNING "Z init and fill done\n");
-
     for (i = 0; i < Z_AMOUNT; i++)
         Hex_value_2(z[i], &hex[i * WORD_SIZE *2]);
-    printk(KERN_WARNING "hex_Value_2 done\n");
-      
-    printk(KERN_WARNING "Z freed\n");
-    hex[HEX_AMOUNT - 1] = '\0';
+     
+   hex[HEX_AMOUNT - 1] = '\0';
 
     printk(KERN_INFO "\n\nSha3 digest: 0x%s\n\n", hex);
 }
 
 void Absorb(unsigned char *buff, int inputPos)        
 {
-    int p = 0;
-    unsigned char hex3[HEX_AMOUNT];
-    size_t i, j, k;
+   int p = 0;
+   size_t i, j, k;
     for (i = 0; i < 5; i++)
         for (j = 0; j < 5; j++)
         {
@@ -355,16 +343,7 @@ void Absorb(unsigned char *buff, int inputPos)
                             block[j][i] <<= WORD_SIZE;
                     }
             }	
-	}
-    
-    Hex_value_2(block[0][0], &hex3[0]);
-    printk("block after absorb: %s", hex3);
-    
-    for (j = 0; j < 4; j++)
-           Hex_value_2(block[j][0], &hex3[j * WORD_SIZE*2]);
-    
-    printk("Block after Absorb function: %s", hex3);
-
+	}    
 }
 
 
@@ -427,5 +406,4 @@ void Keccak_f(void)
         //iota
             state[0][0] ^= keccakf_rndc[n];
     }
-    printk(KERN_WARNING "Kecccak function complete\n");
 }

@@ -1,0 +1,1 @@
+cmd_/home/filip/SHA3_driver/Driver/driver/sha3.ko := ld -r -m elf_i386 -z noexecstack  -T ./scripts/module-common.lds --build-id  -o /home/filip/SHA3_driver/Driver/driver/sha3.ko /home/filip/SHA3_driver/Driver/driver/sha3.o /home/filip/SHA3_driver/Driver/driver/sha3.mod.o ;  true
